@@ -67,6 +67,7 @@ class YAML_CPP_API Node {
   template <typename T, typename S>
   T as(const S& fallback) const;
   const std::string& Scalar() const;
+  const std::string& UninstrumentedScalarForTesting() const;
 
   const std::string& Tag() const;
   void SetTag(const std::string& tag);
@@ -113,6 +114,9 @@ class YAML_CPP_API Node {
   template <typename Key, typename Value>
   void force_insert(const Key& key, const Value& value);
 
+  template <typename Key>
+  bool contains(const Key& key) const;
+
  private:
   enum Zombie { ZombieNode };
   explicit Node(Zombie);
@@ -120,6 +124,7 @@ class YAML_CPP_API Node {
   explicit Node(detail::node& node, detail::shared_memory_holder pMemory);
 
   void EnsureNodeExists() const;
+  void Invalidate();
 
   template <typename T>
   void Assign(const T& rhs);
@@ -141,7 +146,7 @@ YAML_CPP_API bool operator==(const Node& lhs, const Node& rhs);
 
 YAML_CPP_API Node Clone(const Node& node);
 
-template <typename T>
+template <typename T, typename Enable = void>
 struct convert;
 }
 

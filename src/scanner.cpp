@@ -13,6 +13,7 @@ Scanner::Scanner(std::istream& in)
       m_startedStream(false),
       m_endedStream(false),
       m_simpleKeyAllowed(false),
+      m_scalarValueAllowed(false),
       m_canBeJSONFlow(false),
       m_simpleKeys{},
       m_indents{},
@@ -127,6 +128,17 @@ void Scanner::ScanNextToken() {
   }
 
   if (INPUT.peek() == Keys::FlowEntry) {
+    // values starting with `,` are not allowed.
+    // eg: reject `,foo`
+    if (INPUT.column() == 0) {
+      throw ParserException(INPUT.mark(), ErrorMsg::UNEXPECTED_FLOW);
+    }
+    // if we already parsed a quoted scalar value and we are not in a flow,
+    // then `,` is not a valid character.
+    // eg: reject `"foo",`
+    if (!m_scalarValueAllowed) {
+      throw ParserException(INPUT.mark(), ErrorMsg::UNEXPECTED_SCALAR);
+    }
     return ScanFlowEntry();
   }
 
@@ -156,7 +168,25 @@ void Scanner::ScanNextToken() {
   // special scalars
   if (InBlockContext() && (INPUT.peek() == Keys::LiteralScalar ||
                            INPUT.peek() == Keys::FoldedScalar)) {
+    // if we begin parsing a literal scalar with an unverified potential 
+    // simple key pushed, that may be a tag to the literal scalar, and
+    // should be removed to avoid wrong indentation limit
+    // eg:
+    // - !!str |
+    //  literal
+    //  scalar
+    if (!m_simpleKeys.empty() &&
+      m_simpleKeys.top().pKey->status == Token::UNVERIFIED) {
+        PopIndent();
+    }
     return ScanBlockScalar();
+  }
+
+  // if we already parsed a quoted scalar value in this line,
+  // another scalar value is an error.
+  // eg: reject `"foo" "bar"`
+  if (!m_scalarValueAllowed) {
+    throw ParserException(INPUT.mark(), ErrorMsg::UNEXPECTED_SCALAR);
   }
 
   if (INPUT.peek() == '\'' || INPUT.peek() == '\"') {
@@ -203,6 +233,9 @@ void Scanner::ScanToNextToken() {
     // oh yeah, and let's get rid of that simple key
     InvalidateSimpleKey();
 
+    // new line - we accept a scalar value now
+    m_scalarValueAllowed = true;
+
     // new line - we may be able to accept a simple key now
     if (InBlockContext()) {
       m_simpleKeyAllowed = true;
@@ -245,6 +278,7 @@ const RegEx& Scanner::GetValueRegex() const {
 void Scanner::StartStream() {
   m_startedStream = true;
   m_simpleKeyAllowed = true;
+  m_scalarValueAllowed = true;
   std::unique_ptr<IndentMarker> pIndent(
       new IndentMarker(-1, IndentMarker::NONE));
   m_indentRefs.push_back(std::move(pIndent));
@@ -261,6 +295,7 @@ void Scanner::EndStream() {
   PopAllSimpleKeys();
 
   m_simpleKeyAllowed = false;
+  m_scalarValueAllowed = false;
   m_endedStream = true;
 }
 
